@@ -6,7 +6,7 @@
 extern crate alloc;
 
 pub mod map;
-pub use map::WeakMap;
+pub use map::{StrongMap, WeakMap};
 
 mod traits;
 pub use traits::{StrongRef, WeakRef};
