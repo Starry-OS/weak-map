@@ -1,0 +1,22 @@
+[package]
+name = "weak-map"
+version = "0.1.0"
+edition = "2024"
+authors = ["Asakura Mizu <asakuramizu111@gmail.com>"]
+description = "HashMap with weak references"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Starry-OS/weak-map"
+documentation = "https://docs.rs/weak-map"
+keywords = ["Arc", "Rc", "weak", "map", "hash", "hashbrown"]
+categories = ["no-std", "data-structures"]
+
+[dependencies]
+hashbrown = { version = "0.15.2", default-features = false, features = [
+    "inline-more",
+    "equivalent",
+] }
+
+[features]
+default = ["default-hasher"]
+
+default-hasher = ["hashbrown/default-hasher"]
