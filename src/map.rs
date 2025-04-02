@@ -33,8 +33,8 @@ impl OpsCounter {
     }
 
     #[inline]
-    fn reset(&self) {
-        self.0.store(0, Ordering::Relaxed);
+    fn reset(&mut self) {
+        *self.0.get_mut() = 0;
     }
 
     #[inline]
