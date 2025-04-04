@@ -1,4 +1,5 @@
-//! [`WeakMap`] is a hash map that stores weak references to values.
+//! [`WeakMap`] is a wrapper over `BTreeMap` that stores weak references to
+//! values.
 
 #![no_std]
 #![warn(missing_docs)]

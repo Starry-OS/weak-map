@@ -1,13 +1,12 @@
-//! A hash map that stores weak references to values.
+//! `BTreeMap` with weak references.
 
+use alloc::collections::btree_map;
 use core::{
+    borrow::Borrow,
     fmt,
-    hash::{BuildHasher, Hash},
     iter::FusedIterator,
     sync::atomic::{AtomicUsize, Ordering},
 };
-
-use hashbrown::{DefaultHashBuilder, Equivalent, TryReserveError, hash_map};
 
 use crate::{StrongRef, WeakRef};
 
@@ -55,83 +54,38 @@ impl Clone for OpsCounter {
     }
 }
 
-/// A hash map that stores strong references to values.
-pub type StrongMap<K, V, S = DefaultHashBuilder> = hash_map::HashMap<K, V, S>;
+/// Alias for `BTreeMap<K, V>`.
+pub type StrongMap<K, V> = btree_map::BTreeMap<K, V>;
 
-/// A hash map that stores weak references to values.
+/// A B-Tree map that stores weak references to values.
 #[derive(Clone)]
-pub struct WeakMap<K, V, S = DefaultHashBuilder> {
-    inner: hash_map::HashMap<K, V, S>,
+pub struct WeakMap<K, V> {
+    inner: btree_map::BTreeMap<K, V>,
     ops: OpsCounter,
 }
 
-impl<K, V, S: Default> Default for WeakMap<K, V, S> {
+impl<K, V> WeakMap<K, V> {
+    /// Makes a new, empty `WeakMap`.
+    ///
+    /// Does not allocate anything on its own.
     #[inline]
+    pub const fn new() -> Self {
+        Self {
+            inner: btree_map::BTreeMap::new(),
+            ops: OpsCounter::new(),
+        }
+    }
+}
+
+impl<K, V> Default for WeakMap<K, V> {
     fn default() -> Self {
-        WeakMap {
-            inner: Default::default(),
-            ops: Default::default(),
-        }
+        Self::new()
     }
 }
 
-impl<K, V> WeakMap<K, V, DefaultHashBuilder> {
-    /// Creates an empty `WeakMap`.
-    ///
-    /// The hash map is initially created with a capacity of 0, so it will not
-    /// allocate until it is first inserted into.
+impl<K, V> From<btree_map::BTreeMap<K, V>> for WeakMap<K, V> {
     #[inline]
-    pub fn new() -> Self {
-        Self {
-            inner: hash_map::HashMap::new(),
-            ops: OpsCounter::new(),
-        }
-    }
-
-    /// Creates an empty `WeakMap` with the specified capacity.
-    ///
-    /// The hash map will be able to hold at least `capacity` elements without
-    /// reallocating. If `capacity` is 0, the hash map will not allocate.
-    #[inline]
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            inner: hash_map::HashMap::with_capacity(capacity),
-            ops: OpsCounter::new(),
-        }
-    }
-}
-
-impl<K, V, S> WeakMap<K, V, S> {
-    /// Creates an empty `WeakMap` which will use the given hash builder to hash
-    /// keys.
-    ///
-    /// The hash map is initially created with a capacity of 0, so it will not
-    /// allocate until it is first inserted into.
-    #[inline]
-    pub const fn with_hasher(hasher: S) -> Self {
-        Self {
-            inner: hash_map::HashMap::with_hasher(hasher),
-            ops: OpsCounter::new(),
-        }
-    }
-
-    /// Creates an empty `WeakMap` with the specified capacity, using
-    /// `hash_builder` to hash the keys.
-    ///
-    /// The hash map will be able to hold at least `capacity` elements without
-    /// reallocating. If `capacity` is 0, the hash map will not allocate.
-    #[inline]
-    pub fn with_capacity_and_hasher(capacity: usize, hash_builder: S) -> Self {
-        Self {
-            inner: hash_map::HashMap::with_capacity_and_hasher(capacity, hash_builder),
-            ops: OpsCounter::new(),
-        }
-    }
-}
-
-impl<K, V, S> From<hash_map::HashMap<K, V, S>> for WeakMap<K, V, S> {
-    #[inline]
-    fn from(inner: hash_map::HashMap<K, V, S>) -> Self {
+    fn from(inner: btree_map::BTreeMap<K, V>) -> Self {
         Self {
             inner,
             ops: OpsCounter::new(),
@@ -139,33 +93,15 @@ impl<K, V, S> From<hash_map::HashMap<K, V, S>> for WeakMap<K, V, S> {
     }
 }
 
-impl<K, V, S> From<WeakMap<K, V, S>> for hash_map::HashMap<K, V, S> {
+impl<K, V> From<WeakMap<K, V>> for btree_map::BTreeMap<K, V> {
     #[inline]
-    fn from(map: WeakMap<K, V, S>) -> Self {
+    fn from(map: WeakMap<K, V>) -> Self {
         map.inner
     }
 }
 
-impl<K, V, S> WeakMap<K, V, S> {
-    /// Returns a reference to the map's [`BuildHasher`].
-    ///
-    /// [`BuildHasher`]: https://doc.rust-lang.org/std/hash/trait.BuildHasher.html
-    #[inline]
-    pub fn hasher(&self) -> &S {
-        self.inner.hasher()
-    }
-
-    /// Returns the number of elements the map can hold without reallocating.
-    ///
-    /// This number is a lower bound; the `WeakMap` might be able to hold more,
-    /// but is guaranteed to be able to hold at least this many.
-    #[inline]
-    pub fn capacity(&self) -> usize {
-        self.inner.capacity()
-    }
-
-    /// Clears the map, removing all key-value pairs. Keeps the allocated memory
-    /// for reuse.
+impl<K, V> WeakMap<K, V> {
+    /// Clears the map, removing all elements.
     #[inline]
     pub fn clear(&mut self) {
         self.inner.clear();
@@ -178,7 +114,7 @@ impl<K, V, S> WeakMap<K, V, S> {
         self.inner.len()
     }
 
-    /// An iterator visiting all key-value pairs in arbitrary order.
+    /// Gets an iterator over the entries of the map, sorted by key.
     #[inline]
     pub fn iter(&self) -> Iter<K, V> {
         let it = self.inner.iter();
@@ -186,26 +122,26 @@ impl<K, V, S> WeakMap<K, V, S> {
         Iter(it)
     }
 
-    /// An iterator visiting all keys in arbitrary order.
+    /// Gets an iterator over the keys of the map, in sorted order.
     #[inline]
     pub fn keys(&self) -> Keys<K, V> {
         Keys(self.iter())
     }
 
-    /// Creates a consuming iterator visiting all the keys in arbitrary order.
+    /// Creates a consuming iterator visiting all the keys, in sorted order.
     /// The map cannot be used after calling this.
     #[inline]
     pub fn into_keys(self) -> IntoKeys<K, V> {
         IntoKeys(IntoIter(self.inner.into_iter()))
     }
 
-    /// An iterator visiting all values in arbitrary order.
+    /// Gets an iterator over the values of the map, in order by key.
     #[inline]
     pub fn values(&self) -> Values<K, V> {
         Values(self.iter())
     }
 
-    /// Creates a consuming iterator visiting all the values in arbitrary order.
+    /// Creates a consuming iterator visiting all the values, in order by key.
     /// The map cannot be used after calling this.
     #[inline]
     pub fn into_values(self) -> IntoValues<K, V> {
@@ -213,8 +149,9 @@ impl<K, V, S> WeakMap<K, V, S> {
     }
 }
 
-impl<K, V, S> WeakMap<K, V, S>
+impl<K, V> WeakMap<K, V>
 where
+    K: Ord,
     V: WeakRef,
 {
     #[inline]
@@ -241,26 +178,13 @@ where
         self.iter().count()
     }
 
-    /// Returns `true` if the map contains no elements.
+    /// Returns `true` if the map contains no valid elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Clears the map, returning all key-value pairs as an iterator. Keeps the
-    /// allocated memory for reuse.
-    ///
-    /// If the returned iterator is dropped before being fully consumed, it
-    /// drops the remaining key-value pairs. The returned iterator keeps a
-    /// mutable borrow on the vector to optimize its implementation.
-    #[inline]
-    pub fn drain(&mut self) -> Drain<K, V> {
-        self.cleanup();
-        Drain(self.inner.drain())
-    }
-
-    /// Retains only the elements specified by the predicate. Keeps the
-    /// allocated memory for reuse.
+    /// Retains only the elements specified by the predicate.
     #[inline]
     pub fn retain<F>(&mut self, mut f: F)
     where
@@ -275,77 +199,32 @@ where
             }
         });
     }
-}
-
-impl<K, V, S> WeakMap<K, V, S>
-where
-    K: Eq + Hash,
-    V: WeakRef,
-    S: BuildHasher,
-{
-    /// Reserves capacity for at least `additional` more elements to be inserted
-    /// in the `WeakMap`. The collection may reserve more space to avoid
-    /// frequent reallocations.
-    pub fn reserve(&mut self, additional: usize) {
-        self.cleanup();
-        self.inner.reserve(additional);
-    }
-
-    /// Tries to reserve capacity for at least `additional` more elements to be
-    /// inserted in the `WeakMap`. The collection may reserve more space
-    /// to avoid frequent reallocations.
-    pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-        self.cleanup();
-        self.inner.try_reserve(additional)
-    }
-
-    /// Shrinks the capacity of the map as much as possible. It will drop
-    /// down as much as possible while maintaining the internal rules
-    /// and possibly leaving some space in accordance with the resize policy.
-    pub fn shrink_to_fit(&mut self) {
-        self.cleanup();
-        self.inner.shrink_to_fit();
-    }
-
-    /// Shrinks the capacity of the map with a lower limit. It will drop
-    /// down no lower than the supplied limit while maintaining the internal
-    /// rules and possibly leaving some space in accordance with the resize
-    /// policy.
-    ///
-    /// This function does nothing if the current capacity is smaller than the
-    /// supplied minimum capacity.
-    pub fn shrink_to(&mut self, min_capacity: usize) {
-        self.cleanup();
-        self.inner.shrink_to(min_capacity);
-    }
 
     /// Returns a reference to the value corresponding to the key.
     ///
-    /// The key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+    /// The key may be any borrowed form of the map's key type, but the ordering
+    /// on the borrowed form *must* match the ordering on the key type.
     pub fn get<Q>(&self, key: &Q) -> Option<V::Strong>
     where
-        Q: Hash + Equivalent<K> + ?Sized,
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
     {
         self.ops.bump();
         self.inner.get(key).and_then(V::upgrade)
     }
 
-    /// Returns the key-value pair corresponding to the supplied key.
+    /// Returns the key-value pair corresponding to the supplied key. This is
+    /// potentially useful:
+    /// - for key types where non-identical keys can be considered equal;
+    /// - for getting the `&K` stored key value from a borrowed `&Q` lookup key; or
+    /// - for getting a reference to a key with the same lifetime as the collection.
     ///
-    /// The supplied key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+    /// The supplied key may be any borrowed form of the map's key type, but the ordering
+    /// on the borrowed form *must* match the ordering on the key type.
     pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, V::Strong)>
     where
-        Q: Hash + Equivalent<K> + ?Sized,
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
     {
         self.ops.bump();
         self.inner
@@ -355,15 +234,12 @@ where
 
     /// Returns `true` if the map contains a value for the specified key.
     ///
-    /// The key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+    /// The key may be any borrowed form of the map's key type, but the ordering
+    /// on the borrowed form *must* match the ordering on the key type.
     pub fn contains_key<Q>(&self, key: &Q) -> bool
     where
-        Q: Hash + Equivalent<K> + ?Sized,
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
     {
         self.ops.bump();
         self.inner.get(key).is_some_and(|v| !v.is_expired())
@@ -371,15 +247,13 @@ where
 
     /// Inserts a key-value pair into the map.
     ///
-    /// If the map did not have this key present, [`None`] is returned.
+    /// If the map did not have this key present, `None` is returned.
     ///
     /// If the map did have this key present, the value is updated, and the old
     /// value is returned. The key is not updated, though; this matters for
-    /// types that can be `==` without being identical. See the
-    /// [`std::collections`] [module-level documentation] for more.
+    /// types that can be `==` without being identical. See the [module-level
+    /// documentation] for more.
     ///
-    /// [`None`]: https://doc.rust-lang.org/std/option/enum.Option.html#variant.None
-    /// [`std::collections`]: https://doc.rust-lang.org/std/collections/index.html
     /// [module-level documentation]: https://doc.rust-lang.org/std/collections/index.html#insert-and-complex-keys
     pub fn insert(&mut self, key: K, value: &V::Strong) -> Option<V::Strong> {
         self.try_bump();
@@ -389,34 +263,28 @@ where
     }
 
     /// Removes a key from the map, returning the value at the key if the key
-    /// was previously in the map. Keeps the allocated memory for reuse.
+    /// was previously in the map.
     ///
-    /// The key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+    /// The key may be any borrowed form of the map's key type, but the ordering
+    /// on the borrowed form *must* match the ordering on the key type.
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V::Strong>
     where
-        Q: Hash + Equivalent<K> + ?Sized,
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
     {
         self.try_bump();
         self.inner.remove(key).and_then(|v| v.upgrade())
     }
 
-    /// Removes a key from the map, returning the stored key and value if the
-    /// key was previously in the map. Keeps the allocated memory for reuse.
+    /// Removes a key from the map, returning the stored key and value if the key
+    /// was previously in the map.
     ///
-    /// The key may be any borrowed form of the map's key type, but
-    /// [`Hash`] and [`Eq`] on the borrowed form *must* match those for
-    /// the key type.
-    ///
-    /// [`Eq`]: https://doc.rust-lang.org/std/cmp/trait.Eq.html
-    /// [`Hash`]: https://doc.rust-lang.org/std/hash/trait.Hash.html
+    /// The key may be any borrowed form of the map's key type, but the ordering
+    /// on the borrowed form *must* match the ordering on the key type.
     pub fn remove_entry<Q>(&mut self, key: &Q) -> Option<(K, V::Strong)>
     where
-        Q: Hash + Equivalent<K> + ?Sized,
+        K: Borrow<Q>,
+        Q: Ord + ?Sized,
     {
         self.try_bump();
         self.inner
@@ -424,24 +292,13 @@ where
             .and_then(|(k, v)| v.upgrade().map(|v| (k, v)))
     }
 
-    /// Returns the total amount of memory allocated internally by the hash
-    /// set, in bytes.
-    ///
-    /// The returned number is informational only. It is intended to be
-    /// primarily used for memory profiling.
-    #[inline]
-    pub fn allocation_size(&self) -> usize {
-        self.inner.allocation_size()
-    }
-
     /// Upgrade this `WeakMap` to a `StrongMap`.
-    pub fn upgrade(&self) -> StrongMap<K, V::Strong, S>
+    pub fn upgrade(&self) -> StrongMap<K, V::Strong>
     where
         K: Clone,
-        S: Clone,
     {
         self.ops.bump();
-        let mut map = StrongMap::with_hasher(self.hasher().clone());
+        let mut map = StrongMap::new();
         for (key, value) in self.iter() {
             map.insert(key.clone(), value);
         }
@@ -449,11 +306,10 @@ where
     }
 }
 
-impl<K, V, S> PartialEq for WeakMap<K, V, S>
+impl<K, V> PartialEq for WeakMap<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
     V: WeakRef,
-    S: BuildHasher,
 {
     fn eq(&self, other: &Self) -> bool {
         self.iter().all(|(key, value)| {
@@ -464,15 +320,14 @@ where
     }
 }
 
-impl<K, V, S> Eq for WeakMap<K, V, S>
+impl<K, V> Eq for WeakMap<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
     V: WeakRef,
-    S: BuildHasher,
 {
 }
 
-impl<K, V, S> fmt::Debug for WeakMap<K, V, S>
+impl<K, V> fmt::Debug for WeakMap<K, V>
 where
     K: fmt::Debug,
     V: WeakRef,
@@ -483,16 +338,15 @@ where
     }
 }
 
-impl<'a, K, V, S> FromIterator<(K, &'a V::Strong)> for WeakMap<K, V, S>
+impl<'a, K, V> FromIterator<(K, &'a V::Strong)> for WeakMap<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
     V: WeakRef,
-    S: BuildHasher + Default,
 {
     #[inline]
     fn from_iter<T: IntoIterator<Item = (K, &'a V::Strong)>>(iter: T) -> Self {
         let iter = iter.into_iter();
-        let mut map = WeakMap::with_capacity_and_hasher(iter.size_hint().0, S::default());
+        let mut map = WeakMap::new();
         for (key, value) in iter {
             map.insert(key, value);
         }
@@ -500,11 +354,10 @@ where
     }
 }
 
-impl<K, V, S, const N: usize> From<[(K, &V::Strong); N]> for WeakMap<K, V, S>
+impl<K, V, const N: usize> From<[(K, &V::Strong); N]> for WeakMap<K, V>
 where
-    K: Eq + Hash,
+    K: Ord,
     V: WeakRef,
-    S: BuildHasher + Default,
 {
     #[inline]
     fn from(array: [(K, &V::Strong); N]) -> Self {
@@ -512,14 +365,13 @@ where
     }
 }
 
-impl<K, V, S> From<&StrongMap<K, V::Strong, S>> for WeakMap<K, V, S>
+impl<K, V> From<&StrongMap<K, V::Strong>> for WeakMap<K, V>
 where
-    K: Eq + Hash + Clone,
+    K: Ord + Clone,
     V: WeakRef,
-    S: BuildHasher + Clone,
 {
-    fn from(value: &StrongMap<K, V::Strong, S>) -> Self {
-        let mut map = WeakMap::with_capacity_and_hasher(value.len(), value.hasher().clone());
+    fn from(value: &StrongMap<K, V::Strong>) -> Self {
+        let mut map = WeakMap::new();
         for (key, value) in value.iter() {
             map.insert(key.clone(), value);
         }
@@ -527,9 +379,9 @@ where
     }
 }
 
-/// An iterator over the entries of a `HashMap` in arbitrary order.
+/// An iterator over the entries of a `WeakMap`.
 #[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct Iter<'a, K, V>(hash_map::Iter<'a, K, V>);
+pub struct Iter<'a, K, V>(btree_map::Iter<'a, K, V>);
 
 impl<'a, K, V> Iterator for Iter<'a, K, V>
 where
@@ -556,7 +408,7 @@ impl<K, V> FusedIterator for Iter<'_, K, V> where V: WeakRef {}
 
 impl<K, V> Default for Iter<'_, K, V> {
     fn default() -> Self {
-        Iter(hash_map::Iter::default())
+        Iter(btree_map::Iter::default())
     }
 }
 
@@ -675,8 +527,8 @@ where
     }
 }
 
-/// An owning iterator over the entries of a `HashMap` in arbitrary order.
-pub struct IntoIter<K, V>(hash_map::IntoIter<K, V>);
+/// An owning iterator over the entries of a `WeakMap`.
+pub struct IntoIter<K, V>(btree_map::IntoIter<K, V>);
 
 impl<K, V> Iterator for IntoIter<K, V>
 where
@@ -702,7 +554,7 @@ impl<K, V> FusedIterator for IntoIter<K, V> where V: WeakRef {}
 
 impl<K, V> Default for IntoIter<K, V> {
     fn default() -> Self {
-        IntoIter(hash_map::IntoIter::default())
+        IntoIter(btree_map::IntoIter::default())
     }
 }
 
@@ -718,7 +570,7 @@ where
     }
 }
 
-/// An owning iterator over the keys of a `HashMap` in arbitrary order.
+/// An owning iterator over the keys of a `WeakMap`.
 pub struct IntoKeys<K, V>(IntoIter<K, V>);
 
 impl<K, V> Iterator for IntoKeys<K, V>
@@ -744,7 +596,7 @@ impl<K, V> Default for IntoKeys<K, V> {
     }
 }
 
-/// An owning iterator over the values of a `HashMap` in arbitrary order.
+/// An owning iterator over the values of a `WeakMap`.`
 pub struct IntoValues<K, V>(IntoIter<K, V>);
 
 impl<K, V> Iterator for IntoValues<K, V>
@@ -769,32 +621,6 @@ impl<K, V> Default for IntoValues<K, V> {
         IntoValues(IntoIter::default())
     }
 }
-/// A draining iterator over the entries of a `HashMap` in arbitrary
-/// order.
-pub struct Drain<'a, K, V>(hash_map::Drain<'a, K, V>);
-
-impl<K, V> Iterator for Drain<'_, K, V>
-where
-    V: WeakRef,
-{
-    type Item = (K, V::Strong);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for (key, value) in self.0.by_ref() {
-            if let Some(value) = value.upgrade() {
-                return Some((key, value));
-            }
-        }
-        None
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (0, Some(self.0.len()))
-    }
-}
-
-impl<K, V> FusedIterator for Drain<'_, K, V> where V: WeakRef {}
-
 #[cfg(test)]
 mod tests {
     use alloc::sync::{Arc, Weak};

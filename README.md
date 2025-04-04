@@ -1,3 +1,3 @@
-# weak-map: `HashMap` with weak references
+# weak-map: `BTreeMap` with weak references
 
-This is similar to and inspired by [weak-table](https://github.com/tov/weak-table-rs), but using [hashbrown](https://github.com/rust-lang/hashbrown) as underlying implementation.
+This is similar to and inspired by [weak-table](https://github.com/tov/weak-table-rs), but using `BTreeMap` as underlying implementation.
