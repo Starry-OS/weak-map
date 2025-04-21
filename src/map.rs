@@ -621,6 +621,7 @@ impl<K, V> Default for IntoValues<K, V> {
         IntoValues(IntoIter::default())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use alloc::sync::{Arc, Weak};
