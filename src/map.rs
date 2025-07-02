@@ -116,7 +116,7 @@ impl<K, V> WeakMap<K, V> {
 
     /// Gets an iterator over the entries of the map, sorted by key.
     #[inline]
-    pub fn iter(&self) -> Iter<K, V> {
+    pub fn iter(&self) -> Iter<'_, K, V> {
         let it = self.inner.iter();
         self.ops.add(it.len());
         Iter(it)
@@ -124,7 +124,7 @@ impl<K, V> WeakMap<K, V> {
 
     /// Gets an iterator over the keys of the map, in sorted order.
     #[inline]
-    pub fn keys(&self) -> Keys<K, V> {
+    pub fn keys(&self) -> Keys<'_, K, V> {
         Keys(self.iter())
     }
 
@@ -137,7 +137,7 @@ impl<K, V> WeakMap<K, V> {
 
     /// Gets an iterator over the values of the map, in order by key.
     #[inline]
-    pub fn values(&self) -> Values<K, V> {
+    pub fn values(&self) -> Values<'_, K, V> {
         Values(self.iter())
     }
 
