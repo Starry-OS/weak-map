@@ -154,8 +154,12 @@ where
     K: Ord,
     V: WeakRef,
 {
+    /// Cleans up the map by removing expired values.
+    ///
+    /// Usually you don't need to call this manually, as it is called
+    /// automatically when the number of operations reaches a threshold.
     #[inline]
-    fn cleanup(&mut self) {
+    pub fn cleanup(&mut self) {
         self.ops.reset();
         self.inner.retain(|_, v| !v.is_expired());
     }
