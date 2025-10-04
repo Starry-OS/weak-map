@@ -117,9 +117,8 @@ impl<K, V> WeakMap<K, V> {
     /// Gets an iterator over the entries of the map, sorted by key.
     #[inline]
     pub fn iter(&self) -> Iter<'_, K, V> {
-        let it = self.inner.iter();
-        self.ops.add(it.len());
-        Iter(it)
+        self.ops.add(self.inner.len());
+        Iter(self.inner.iter())
     }
 
     /// Gets an iterator over the keys of the map, in sorted order.
@@ -296,6 +295,16 @@ where
             .and_then(|(k, v)| v.upgrade().map(|v| (k, v)))
     }
 
+    /// Gets a mutable iterator over the entries of the map, sorted by key.
+    #[inline]
+    pub fn iter_mut(&mut self) -> IterMut<'_, K, V> {
+        self.ops.add(self.inner.len());
+        if self.ops.reach_threshold() {
+            self.cleanup();
+        }
+        IterMut(self.inner.iter_mut())
+    }
+
     /// Upgrade this `WeakMap` to a `StrongMap`.
     pub fn upgrade(&self) -> StrongMap<K, V::Strong>
     where
@@ -442,6 +451,46 @@ where
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+/// A mutable iterator over the entries of a `BTreeMap`.
+#[must_use = "iterators are lazy and do nothing unless consumed"]
+pub struct IterMut<'a, K, V>(btree_map::IterMut<'a, K, V>);
+
+impl<'a, K, V> Iterator for IterMut<'a, K, V> {
+    type Item = (&'a K, &'a mut V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.0.len()))
+    }
+}
+
+impl<K, V> ExactSizeIterator for IterMut<'_, K, V> {}
+
+impl<K, V> FusedIterator for IterMut<'_, K, V> {}
+
+impl<K, V> Default for IterMut<'_, K, V> {
+    fn default() -> Self {
+        IterMut(btree_map::IterMut::default())
+    }
+}
+
+impl<'a, K, V> IntoIterator for &'a mut WeakMap<K, V>
+where
+    K: Ord,
+    V: WeakRef,
+{
+    type IntoIter = IterMut<'a, K, V>;
+    type Item = (&'a K, &'a mut V);
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
