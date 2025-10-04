@@ -1,6 +1,6 @@
 [package]
 name = "weak-map"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["Asakura Mizu <asakuramizu111@gmail.com>"]
 description = "BTreeMap with weak references"
